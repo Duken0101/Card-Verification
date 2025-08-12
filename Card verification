@@ -1,0 +1,146 @@
+import os
+import cv2
+import pytesseract
+from difflib import SequenceMatcher
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import PatternFill, Font
+from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.formatting.rule import FormulaRule
+from datetime import datetime
+
+EXCEL_FILENAME = "card_catalogue.xlsx"
+
+def create_excel_if_missing(file_path):
+    if os.path.exists(file_path):
+        print(f"Excel file found at {file_path}")
+        return
+
+    print(f"Excel file not found, creating new one at {file_path}")
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Card Catalogue"
+
+    headers = [
+        "ID", "Date Verified", "Year", "Player", "Set Name", "Subset / Parallel",
+        "Card #", "Serial #", "Condition", "Verification Result", "Notes",
+        "Front Image", "Back Image"
+    ]
+    ws.append(headers)
+
+    header_fill = PatternFill(start_color="FFC000", end_color="FFC000", fill_type="solid")
+    header_font = Font(bold=True)
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.fill = header_fill
+        cell.font = header_font
+        ws.column_dimensions[cell.column_letter].width = 20
+
+    # Data validation for Verification Result column (J)
+    dv = DataValidation(type="list", formula1='"MATCH,MISMATCH"', allow_blank=True)
+    ws.add_data_validation(dv)
+    dv.add("J2:J1000")
+
+    # Conditional formatting MATCH (green), MISMATCH (red)
+    green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+    red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+
+    ws.conditional_formatting.add("J2:J1000", FormulaRule(formula=['EXACT(J2,"MATCH")'], fill=green_fill))
+    ws.conditional_formatting.add("J2:J1000", FormulaRule(formula=['EXACT(J2,"MISMATCH")'], fill=red_fill))
+
+    wb.save(file_path)
+    print(f"Created Excel file at {file_path}")
+
+def extract_text_from_image(image_path):
+    if not os.path.exists(image_path):
+        print(f"Image not found: {image_path}")
+        return ""
+    img = cv2.imread(image_path)
+    if img is None:
+        print(f"Failed to read image: {image_path}")
+        return ""
+    text = pytesseract.image_to_string(img)
+    return text.strip()
+
+def is_similar(text1, text2, threshold=0.8):
+    ratio = SequenceMatcher(None, text1.lower(), text2.lower()).ratio()
+    return ratio >= threshold, ratio
+
+def verify_card(front_img, back_img, expected_data):
+    front_text = extract_text_from_image(front_img)
+    back_text = extract_text_from_image(back_img)
+
+    year_match, year_score = is_similar(expected_data['year'], front_text + back_text)
+    player_match, player_score = is_similar(expected_data['player'], front_text + back_text)
+    set_match, set_score = is_similar(expected_data['set'], front_text + back_text)
+    serial_match, serial_score = is_similar(expected_data['serial'], back_text)
+
+    all_match = all([year_match, player_match, set_match, serial_match])
+    result = "MATCH" if all_match else "MISMATCH"
+
+    details = {
+        "Date Verified": datetime.now().strftime("%Y-%m-%d"),
+        "Year": expected_data['year'],
+        "Player": expected_data['player'],
+        "Set Name": expected_data['set'],
+        "Subset / Parallel": expected_data.get('subset_parallel', ''),
+        "Card #": expected_data.get('card_number', ''),
+        "Serial #": expected_data['serial'],
+        "Condition": expected_data.get('condition', ''),
+        "Verification Result": result,
+        "Notes": expected_data.get('notes', ''),
+        "Front Image": front_img,
+        "Back Image": back_img
+    }
+    return details
+
+def append_to_excel(file_path, data):
+    wb = load_workbook(file_path)
+    ws = wb.active
+
+    # Auto-generate ID (1-based row number minus header)
+    new_id = ws.max_row
+
+    ws.append([
+        new_id,
+        data["Date Verified"],
+        data["Year"],
+        data["Player"],
+        data["Set Name"],
+        data["Subset / Parallel"],
+        data["Card #"],
+        data["Serial #"],
+        data["Condition"],
+        data["Verification Result"],
+        data["Notes"],
+        data["Front Image"],
+        data["Back Image"]
+    ])
+    wb.save(file_path)
+    print(f"Appended card data to {file_path} (ID {new_id})")
+
+def main():
+    create_excel_if_missing(EXCEL_FILENAME)
+
+    # Example card info - replace these with real inputs or argument parsing
+    expected_info = {
+        "year": "2021",
+        "player": "LeBron James",
+        "set": "Panini Prizm",
+        "serial": "#14/25",
+        "subset_parallel": "Blue Wave Refractor",
+        "card_number": "14",
+        "condition": "NM-MT 8",
+        "notes": "Slight corner wear"
+    }
+
+    front_img_path = "front.jpg"  # Replace with your actual image path
+    back_img_path = "back.jpg"    # Replace with your actual image path
+
+    print("Starting card verification...")
+    result_data = verify_card(front_img_path, back_img_path, expected_info)
+    print(f"Verification result: {result_data['Verification Result']}")
+
+    append_to_excel(EXCEL_FILENAME, result_data)
+
+if __name__ == "__main__":
+    main()
