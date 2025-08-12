@@ -1,0 +1,23 @@
+How to Use This Script
+
+1. Install dependencies if you don’t have them:
+
+pip install opencv-python pytesseract openpyxl
+
+
+2. Make sure you have Tesseract OCR installed and accessible in your system PATH.
+
+
+3. Place your card images (front.jpg and back.jpg or rename as needed) in the script folder.
+
+
+4. Edit the expected_info dictionary inside main() with the card details you want to verify.
+
+
+5. Run the script. It will:
+
+Create card_catalogue.xlsx if missing
+
+Verify the card by OCR and text matching
+
+Append the result to the Excel sheet automatically.
